@@ -119,7 +119,7 @@ python auto_park.py
 ## Ejemplo de configuración `profile_path` en `auto_park.py`
 
 ```python
-profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\r7l8sa9w.default-release"
+profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\123456abcd.default-release"
 ```
 
 Modifica según tu sistema operativo y perfil Firefox.
