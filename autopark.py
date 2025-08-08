@@ -1,4 +1,5 @@
 import json
+import threading
 from seleniumwire import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
@@ -8,6 +9,24 @@ import time
 import subprocess
 import tempfile
 import os
+
+def input_con_timeout(prompt, timeout=10, default="n"):
+    respuesta = [default]
+
+    def preguntar():
+        try:
+            r = input(prompt).strip().lower()
+            if r:
+                respuesta[0] = r
+        except EOFError:
+            pass
+
+    hilo = threading.Thread(target=preguntar)
+    hilo.daemon = True
+    hilo.start()
+    hilo.join(timeout)
+
+    return respuesta[0]
 
 def get_all_m3u8_links(url, firefox_profile_path):
     options = Options()
@@ -110,41 +129,43 @@ def procesar_capitulo(cap, base_folder, profile_path):
     url_es = cap.get("url_es", "").strip()
     url_en = cap.get("url_en", "").strip()
 
-    # Saltar capítulo si no hay URL en español o inglés
     if not url_es or not url_en:
         print(f"Saltando capítulo S{temporada:02d}E{numero:02d} '{nombre}' porque no tiene URL en español o inglés.")
-        return
+        return True  
 
     season_folder = os.path.join(base_folder, f"Season {temporada:02d}")
     os.makedirs(season_folder, exist_ok=True)
 
     print(f"\n=== Procesando Temporada {temporada} Episodio {numero}: {nombre} ===")
-    m3u8_es = get_all_m3u8_links(url_es, profile_path)
-    m3u8_en = get_all_m3u8_links(url_en, profile_path)
 
-    if not m3u8_es or not m3u8_en:
-        print(f"No se pudieron obtener enlaces .m3u8 para el capítulo {numero}, saltando...")
-        return
+    try:
+        m3u8_es = get_all_m3u8_links(url_es, profile_path)
+        m3u8_en = get_all_m3u8_links(url_en, profile_path)
 
-    video_url, audio_es_url = filter_streams(m3u8_es, "es")
-    video_en_url, audio_en_url = filter_streams(m3u8_en, "en")
+        if not m3u8_es or not m3u8_en:
+            raise ValueError("No se pudieron obtener enlaces .m3u8")
 
-    if not video_url:
-        print(f"No se encontró stream de video español (f1-v1) para el capítulo {numero}, saltando...")
-        return
-    if not audio_es_url:
-        print(f"No se encontró stream de audio español (f8-a1) para el capítulo {numero}, saltando...")
-        return
-    if not audio_en_url:
-        print(f"No se encontró stream de audio inglés (f8-a1) para el capítulo {numero}, saltando...")
-        return
+        video_url, audio_es_url = filter_streams(m3u8_es, "es")
+        video_en_url, audio_en_url = filter_streams(m3u8_en, "en")
 
-    safe_name = nombre.replace(" ", "_").replace("/", "-")
-    output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
+        if not video_url or not audio_es_url or not audio_en_url:
+            raise ValueError("Faltan streams de video o audio")
 
-    download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
-    print(f"Capítulo {numero} de la temporada {temporada} completado y guardado en {output_filename}")
+        safe_name = nombre.replace(" ", "_").replace("/", "-")
+        output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
 
+        download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
+        print(f"Capítulo {numero} de la temporada {temporada} completado y guardado en {output_filename}")
+        return True
+
+    except Exception as e:
+        print(f"Error procesando capítulo S{temporada:02d}E{numero:02d}: {e}")
+        r = input_con_timeout("¿Quieres reintentar este capítulo? (s/n) [auto: no en 10s]: ", 10)
+        if r == "s":
+            return procesar_capitulo(cap, base_folder, profile_path)
+        else:
+            print("Saltando capítulo...")
+            return False
 
 if __name__ == "__main__":
     profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\r7l8sa9w.default-release"
@@ -154,7 +175,15 @@ if __name__ == "__main__":
     with open("capitulos.json", "r", encoding="utf-8") as f:
         capitulos = json.load(f)
 
+    fallidos = []
+
     for cap in capitulos:
-        procesar_capitulo(cap, base_folder, profile_path)
+        exito = procesar_capitulo(cap, base_folder, profile_path)
+        if not exito:
+            fallidos.append(f"S{cap['temporada']:02d}E{cap['numero']:02d} - {cap['nombre']}")
 
     print("\nTodos los capítulos procesados.")
+    if fallidos:
+        print("\n❌ Capítulos que no se pudieron descargar:")
+        for f in fallidos:
+            print(f" - {f}")
