@@ -1,3 +1,4 @@
+import json
 from seleniumwire import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
@@ -10,7 +11,6 @@ import os
 
 def get_all_m3u8_links(url, firefox_profile_path):
     options = Options()
-    # No usar headless para evitar problemas con DRM
     options.add_argument("--width=1920")
     options.add_argument("--height=1080")
     options.profile = firefox_profile_path
@@ -38,7 +38,6 @@ def get_all_m3u8_links(url, firefox_profile_path):
     except Exception:
         print("No se encontró selector de calidad o no se pudo cambiar")
 
-    # Esperar un poco para que se carguen las requests
     time.sleep(7)
 
     m3u8_urls = []
@@ -56,11 +55,6 @@ def get_all_m3u8_links(url, firefox_profile_path):
     return m3u8_urls
 
 def filter_streams(m3u8_list, lang):
-    """
-    Filtra las URLs según idioma y tipo:
-    Español: video "f6-v1", audio "f8-a1"
-    Inglés: video "f1-v1" (opcional), audio "f8-a1"
-    """
     video_url = None
     audio_url = None
 
@@ -72,7 +66,7 @@ def filter_streams(m3u8_list, lang):
                 audio_url = url
         elif lang == "en":
             if "f1-v1" in url and not video_url:
-                video_url = url  # Opcional si quieres video en inglés también
+                video_url = url
             elif "f8-a1" in url and not audio_url:
                 audio_url = url
 
@@ -109,37 +103,58 @@ def download_and_merge(video_url, audio_es_url, audio_en_url, output_file):
         print(f"Merging streams en {output_file}")
         subprocess.run(merge_cmd, check=True)
 
-if __name__ == "__main__":
-    profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\r7l8sa9w.default-release"
+def procesar_capitulo(cap, base_folder, profile_path):
+    temporada = cap["temporada"]
+    numero = cap["numero"]
+    nombre = cap["nombre"]
+    url_es = cap.get("url_es", "").strip()
+    url_en = cap.get("url_en", "").strip()
 
-    url_es = input("Introduce URL del capítulo en español: ").strip()
-    url_en = input("Introduce URL del capítulo en inglés: ").strip()
+    # Saltar capítulo si no hay URL en español o inglés
+    if not url_es or not url_en:
+        print(f"Saltando capítulo S{temporada:02d}E{numero:02d} '{nombre}' porque no tiene URL en español o inglés.")
+        return
 
-    # Obtener todas las URLs .m3u8 de cada página
+    season_folder = os.path.join(base_folder, f"Season {temporada:02d}")
+    os.makedirs(season_folder, exist_ok=True)
+
+    print(f"\n=== Procesando Temporada {temporada} Episodio {numero}: {nombre} ===")
     m3u8_es = get_all_m3u8_links(url_es, profile_path)
     m3u8_en = get_all_m3u8_links(url_en, profile_path)
 
     if not m3u8_es or not m3u8_en:
-        print("No se pudieron obtener enlaces .m3u8")
-        exit(1)
+        print(f"No se pudieron obtener enlaces .m3u8 para el capítulo {numero}, saltando...")
+        return
 
     video_url, audio_es_url = filter_streams(m3u8_es, "es")
     video_en_url, audio_en_url = filter_streams(m3u8_en, "en")
 
     if not video_url:
-        print("No se encontró stream de video español (f6-v1)")
-        exit(1)
+        print(f"No se encontró stream de video español (f1-v1) para el capítulo {numero}, saltando...")
+        return
     if not audio_es_url:
-        print("No se encontró stream de audio español (f8-a1)")
-        exit(1)
+        print(f"No se encontró stream de audio español (f8-a1) para el capítulo {numero}, saltando...")
+        return
     if not audio_en_url:
-        print("No se encontró stream de audio inglés (f8-a1)")
-        exit(1)
+        print(f"No se encontró stream de audio inglés (f8-a1) para el capítulo {numero}, saltando...")
+        return
 
-    # Nota: video_en_url es opcional, solo usamos video_url español
-
-    output_filename = "SouthPark_Episode_Final.mkv"
+    safe_name = nombre.replace(" ", "_").replace("/", "-")
+    output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
 
     download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
+    print(f"Capítulo {numero} de la temporada {temporada} completado y guardado en {output_filename}")
 
-    print("Proceso completado.")
+
+if __name__ == "__main__":
+    profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\r7l8sa9w.default-release"
+    base_folder = "descargas"
+    os.makedirs(base_folder, exist_ok=True)
+
+    with open("capitulos.json", "r", encoding="utf-8") as f:
+        capitulos = json.load(f)
+
+    for cap in capitulos:
+        procesar_capitulo(cap, base_folder, profile_path)
+
+    print("\nTodos los capítulos procesados.")
