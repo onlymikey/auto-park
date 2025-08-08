@@ -172,7 +172,7 @@ if __name__ == "__main__":
     base_folder = "descargas"
     os.makedirs(base_folder, exist_ok=True)
 
-    with open("capitulos.json", "r", encoding="utf-8") as f:
+    with open("all_southpark_episodes.json", "r", encoding="utf-8") as f:
         capitulos = json.load(f)
 
     fallidos = []
