@@ -156,12 +156,20 @@ def procesar_capitulo(cap, base_folder, profile_path):
     url_es = cap.get("url_es", "").strip()
     url_en = cap.get("url_en", "").strip()
 
-    if not url_es or not url_en:
-        print(f"Saltando capítulo S{temporada:02d}E{numero:02d} '{nombre}' porque no tiene URL en español o inglés.")
-        return True  
-
     season_folder = os.path.join(base_folder, f"Season {temporada:02d}")
     os.makedirs(season_folder, exist_ok=True)
+
+    safe_name = nombre.replace(" ", "_").replace("/", "-")
+    output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
+
+    # 🔹 SALTAR SI YA EXISTE
+    if os.path.exists(output_filename):
+        print(f"✅ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (ya existe en {output_filename})")
+        return True
+
+    if not url_es or not url_en:
+        print(f"⚠️ Saltando S{temporada:02d}E{numero:02d} '{nombre}' porque no tiene URL en español o inglés.")
+        return True  
 
     print(f"\n=== Procesando Temporada {temporada} Episodio {numero}: {nombre} ===")
 
@@ -178,21 +186,19 @@ def procesar_capitulo(cap, base_folder, profile_path):
         if not video_url or not audio_es_url or not audio_en_url:
             raise ValueError("Faltan streams de video o audio")
 
-        safe_name = nombre.replace(" ", "_").replace("/", "-")
-        output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
-
         download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
-        print(f"Capítulo {numero} de la temporada {temporada} completado y guardado en {output_filename}")
+        print(f"🎬 Capítulo {numero} de la temporada {temporada} completado y guardado en {output_filename}")
         return True
 
     except Exception as e:
-        print(f"Error procesando capítulo S{temporada:02d}E{numero:02d}: {e}")
+        print(f"❌ Error procesando S{temporada:02d}E{numero:02d}: {e}")
         r = input_con_timeout("¿Quieres reintentar este capítulo? (s/n) [auto: no en 10s]: ", 10)
         if r == "s":
             return procesar_capitulo(cap, base_folder, profile_path)
         else:
-            print("Saltando capítulo...")
+            print("➡️ Saltando capítulo...")
             return False
+
 
 if __name__ == "__main__":
     profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\r7l8sa9w.default-release"
