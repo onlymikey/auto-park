@@ -149,7 +149,22 @@ def download_and_merge(video_url, audio_es_url, audio_en_url, output_file):
         print(f"Merging streams en {output_file}")
         subprocess.run(merge_cmd, check=True)
 
-def procesar_capitulo(cap, base_folder, profile_path):
+def es_1080p(file_path):
+    """Verifica si el archivo tiene resolución 1080p."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=height",
+            "-of", "csv=p=0",
+            file_path
+        ]
+        salida = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().strip()
+        return salida.isdigit() and int(salida) >= 1080
+    except Exception:
+        return False
+
+def procesar_capitulo(cap, base_folder, profile_path, reintentos=1):
     temporada = cap["temporada"]
     numero = cap["numero"]
     nombre = cap["nombre"]
@@ -162,10 +177,15 @@ def procesar_capitulo(cap, base_folder, profile_path):
     safe_name = nombre.replace(" ", "_").replace("/", "-")
     output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
 
-    # 🔹 SALTAR SI YA EXISTE
+    # 🔹 SALTAR SI YA EXISTE Y ES 1080p
     if os.path.exists(output_filename):
-        print(f"✅ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (ya existe en {output_filename})")
-        return True
+        if es_1080p(output_filename):
+            print(f"✅ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (ya existe en 1080p)")
+            return True
+        else:
+            print(f"⚠️ Eliminando {output_filename} (no es 1080p)")
+            os.remove(output_filename)
+            
 
     if not url_es or not url_en:
         print(f"⚠️ Saltando S{temporada:02d}E{numero:02d} '{nombre}' porque no tiene URL en español o inglés.")
@@ -187,7 +207,18 @@ def procesar_capitulo(cap, base_folder, profile_path):
             raise ValueError("Faltan streams de video o audio")
 
         download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
-        print(f"🎬 Capítulo {numero} de la temporada {temporada} completado y guardado en {output_filename}")
+
+        # 🔹 Verificar resolución
+        if not es_1080p(output_filename):
+            if reintentos > 0:
+                print(f"🔄 El archivo no es 1080p, reintentando descarga ({reintentos} intentos restantes)...")
+                os.remove(output_filename)
+                return procesar_capitulo(cap, base_folder, profile_path, reintentos-1)
+            else:
+                print(f"❌ No se pudo obtener {nombre} en 1080p tras reintentos")
+                return False
+
+        print(f"🎬 Capítulo {numero} de la temporada {temporada} completado en 1080p")
         return True
 
     except Exception as e:
