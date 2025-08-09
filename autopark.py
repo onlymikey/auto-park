@@ -1,5 +1,7 @@
 import json
 import threading
+import re
+from urllib.parse import unquote
 from seleniumwire import webdriver
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
@@ -73,21 +75,46 @@ def get_all_m3u8_links(url, firefox_profile_path):
     print(f"Se encontraron {len(m3u8_urls)} URLs .m3u8")
     return m3u8_urls
 
+def extract_mtp(url):
+    """
+    Extrae el valor mtp del parámetro CMCD en la URL del stream.
+    Ejemplo: CMCD=mtp=58300,ot=m,sf=h,...
+    """
+    try:
+        url_decoded = unquote(url)
+        m = re.search(r"mtp=(\d+)", url_decoded)
+        if m:
+            return int(m.group(1))
+    except Exception:
+        pass
+    return 0
+
 def filter_streams(m3u8_list, lang):
-    video_url = None
+    """
+    Devuelve (video_url, audio_url) para el idioma indicado.
+    - Para video, el stream con mtp más alto (cualquier fX-vX)
+    - Para audio, el primer stream f8-aX del idioma (esp o en)
+    """
+    video_candidates = []
     audio_url = None
 
     for url in m3u8_list:
-        if lang == "es":
-            if "f1-v1" in url and not video_url:
-                video_url = url
-            elif "f8-a1" in url and not audio_url:
+        # Audio, típicamente f8-aX, y el idioma depende de lang
+        if lang == "es" and "f8-a" in url:
+            if not audio_url:
                 audio_url = url
-        elif lang == "en":
-            if "f1-v1" in url and not video_url:
-                video_url = url
-            elif "f8-a1" in url and not audio_url:
+        elif lang == "en" and "f8-a" in url:
+            if not audio_url:
                 audio_url = url
+
+        # Video streams, puede ser f1-v1, f6-v1, etc.
+        if re.search(r"f\d+-v\d+", url):
+            mtp = extract_mtp(url)
+            video_candidates.append((mtp, url))
+
+    video_url = None
+    if video_candidates:
+        video_url = max(video_candidates, key=lambda x: x[0])[1]
 
     return video_url, audio_url
 
