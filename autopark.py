@@ -23,24 +23,6 @@ def log(msg):
     print(msg)
 
 
-def input_con_timeout(prompt, timeout=10, default="n"):
-    respuesta = [default]
-
-    def preguntar():
-        try:
-            r = input(prompt).strip().lower()
-            if r:
-                respuesta[0] = r
-        except EOFError:
-            pass
-
-    hilo = threading.Thread(target=preguntar)
-    hilo.daemon = True
-    hilo.start()
-    hilo.join(timeout)
-
-    return respuesta[0]
-
 def sanitize_filename(name):
     valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
     return ''.join(c if c in valid_chars else '_' for c in name)
@@ -256,11 +238,9 @@ def procesar_capitulo(cap, base_folder, profile_path, max_retries=3, delay_betwe
                     except Exception:
                         pass
 
-            if attempt == 1:  # preguntar tras el primer fallo
-                resp = input_con_timeout(f"❓ Falló S{temporada:02d}E{numero:02d}. ¿Omitir? (s/N): ", 10, "n")
-                if resp in ("s", "si", "sí", "y"):
-                    log(f"⏭️ Capítulo omitido por el usuario.")
-                    return False
+            if attempt == 1:
+                log(f"❓ Falló S{temporada:02d}E{numero:02d}. Reintentando...")
+
 
             attempt += 1
             if attempt <= max_retries:
