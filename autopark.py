@@ -11,6 +11,17 @@ import time
 import subprocess
 import tempfile
 import os
+import string
+import datetime
+
+LOG_FILE = "descargas.log"
+
+def log(msg):
+    ts = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{ts} {msg}\n")
+    print(msg)
+
 
 def input_con_timeout(prompt, timeout=10, default="n"):
     respuesta = [default]
@@ -29,6 +40,10 @@ def input_con_timeout(prompt, timeout=10, default="n"):
     hilo.join(timeout)
 
     return respuesta[0]
+
+def sanitize_filename(name):
+    valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
+    return ''.join(c if c in valid_chars else '_' for c in name)
 
 def get_all_m3u8_links(url, firefox_profile_path):
     options = Options()
@@ -164,7 +179,7 @@ def es_1080p(file_path):
     except Exception:
         return False
 
-def procesar_capitulo(cap, base_folder, profile_path, reintentos=1):
+def procesar_capitulo(cap, base_folder, profile_path, max_retries=3, delay_between_retries=5):
     temporada = cap["temporada"]
     numero = cap["numero"]
     nombre = cap["nombre"]
@@ -174,61 +189,88 @@ def procesar_capitulo(cap, base_folder, profile_path, reintentos=1):
     season_folder = os.path.join(base_folder, f"Season {temporada:02d}")
     os.makedirs(season_folder, exist_ok=True)
 
-    safe_name = nombre.replace(" ", "_").replace("/", "-")
+    safe_name = sanitize_filename(nombre)
     output_filename = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{safe_name}.mkv")
 
-    # 🔹 SALTAR SI YA EXISTE Y ES 1080p
-    if os.path.exists(output_filename):
-        if es_1080p(output_filename):
-            print(f"✅ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (ya existe en 1080p)")
-            return True
-        else:
-            print(f"⚠️ Eliminando {output_filename} (no es 1080p)")
-            os.remove(output_filename)
-            
-
-    if not url_es or not url_en:
-        print(f"⚠️ Saltando S{temporada:02d}E{numero:02d} '{nombre}' porque no tiene URL en español o inglés.")
-        return True  
-
-    print(f"\n=== Procesando Temporada {temporada} Episodio {numero}: {nombre} ===")
+    old_safe_name = nombre.replace(" ", "_").replace("/", "-")
+    output_filename_old = os.path.join(season_folder, f"S{temporada:02d}E{numero:02d}_{old_safe_name}.mkv")
 
     try:
-        m3u8_es = get_all_m3u8_links(url_es, profile_path)
-        m3u8_en = get_all_m3u8_links(url_en, profile_path)
+        if os.path.exists(output_filename) and es_1080p(output_filename):
+            log(f"✅ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (ya existe en 1080p)")
+            return True
+        if os.path.exists(output_filename_old) and es_1080p(output_filename_old):
+            log(f"✅ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (ya existe en 1080p con nombre antiguo)")
+            return True
+    except Exception as e:
+        log(f"⚠️ Advertencia al comprobar archivo existente: {e}")
 
-        if not m3u8_es or not m3u8_en:
-            raise ValueError("No se pudieron obtener enlaces .m3u8")
+    for p in (output_filename, output_filename_old):
+        if os.path.exists(p) and not es_1080p(p):
+            try:
+                log(f"⚠️ Eliminando {p} (no es 1080p)")
+                os.remove(p)
+            except Exception as e:
+                log(f"⚠️ No se pudo eliminar {p}: {e}")
 
-        video_url, audio_es_url = filter_streams(m3u8_es, "es")
-        video_en_url, audio_en_url = filter_streams(m3u8_en, "en")
-
-        if not video_url or not audio_es_url or not audio_en_url:
-            raise ValueError("Faltan streams de video o audio")
-
-        download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
-
-        # 🔹 Verificar resolución
-        if not es_1080p(output_filename):
-            if reintentos > 0:
-                print(f"🔄 El archivo no es 1080p, reintentando descarga ({reintentos} intentos restantes)...")
-                os.remove(output_filename)
-                return procesar_capitulo(cap, base_folder, profile_path, reintentos-1)
-            else:
-                print(f"❌ No se pudo obtener {nombre} en 1080p tras reintentos")
-                return False
-
-        print(f"🎬 Capítulo {numero} de la temporada {temporada} completado en 1080p")
+    if not url_es or not url_en:
+        log(f"⚠️ Saltando S{temporada:02d}E{numero:02d} '{nombre}' (faltan URLs)")
         return True
 
-    except Exception as e:
-        print(f"❌ Error procesando S{temporada:02d}E{numero:02d}: {e}")
-        r = input_con_timeout("¿Quieres reintentar este capítulo? (s/n) [auto: no en 10s]: ", 10)
-        if r == "s":
-            return procesar_capitulo(cap, base_folder, profile_path)
-        else:
-            print("➡️ Saltando capítulo...")
-            return False
+    log(f"\n=== Procesando Temporada {temporada} Episodio {numero}: {nombre} ===")
+
+    attempt = 1
+    while attempt <= max_retries:
+        try:
+            log(f"➡️ Intento {attempt}/{max_retries}")
+
+            m3u8_es = get_all_m3u8_links(url_es, profile_path)
+            m3u8_en = get_all_m3u8_links(url_en, profile_path)
+
+            if not m3u8_es or not m3u8_en:
+                raise RuntimeError("No se pudieron obtener enlaces .m3u8")
+
+            video_url, audio_es_url = filter_streams(m3u8_es, "es")
+            _, audio_en_url = filter_streams(m3u8_en, "en")
+
+            if not video_url or not audio_es_url or not audio_en_url:
+                raise RuntimeError("Faltan streams de video o audio")
+
+            download_and_merge(video_url, audio_es_url, audio_en_url, output_filename)
+
+            if not es_1080p(output_filename):
+                if os.path.exists(output_filename):
+                    os.remove(output_filename)
+                raise RuntimeError("El archivo no es 1080p")
+
+            log(f"🎬 ✔️ S{temporada:02d}E{numero:02d} completado -> {output_filename}")
+            return True
+
+        except Exception as e:
+            log(f"❌ Error en intento {attempt}/{max_retries}: {e}")
+
+            for p in (output_filename, output_filename_old):
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
+            if attempt == 1:  # preguntar tras el primer fallo
+                resp = input_con_timeout(f"❓ Falló S{temporada:02d}E{numero:02d}. ¿Omitir? (s/N): ", 10, "n")
+                if resp in ("s", "si", "sí", "y"):
+                    log(f"⏭️ Capítulo omitido por el usuario.")
+                    return False
+
+            attempt += 1
+            if attempt <= max_retries:
+                log(f"⏳ Esperando {delay_between_retries}s antes del siguiente intento...")
+                time.sleep(delay_between_retries)
+            else:
+                log(f"❌ Falló tras {max_retries} intentos. Saltando.")
+                return False
+
+
 
 
 if __name__ == "__main__":
