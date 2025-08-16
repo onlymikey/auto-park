@@ -1,62 +1,33 @@
-# South Park Downloader
+# Auto Park
 
-Proyecto para obtener la lista completa de episodios de South Park (temporadas y episodios) con URLs en español e inglés desde [southpark.lat](https://www.southpark.lat), y descargar automáticamente los episodios con audio en ambos idiomas usando Selenium y FFmpeg.
+Proyecto educativo que demuestra cómo automatizar la recopilación de metadatos de episodios desde la web de [southpark.lat](https://www.southpark.lat), trabajar con flujos de video/audio y validar archivos multimedia usando **Python**, **Selenium**, **BeautifulSoup** y **FFmpeg**.
+
+⚠️ **Aviso importante**: Este proyecto no está destinado a incentivar la descarga de contenido con derechos de autor. Está diseñado con fines **técnicos, de aprendizaje y experimentación personal** en web scraping, automatización y manejo de streams multimedia.
 
 ---
 
 ## Descripción general
 
-Este proyecto consta de dos scripts principales:
+Este proyecto contiene tres scripts principales:
 
-### 1. `south_scrapper.py`
+1. **`south_scrapper.py`** – recopilación de metadatos de episodios.
+2. **`autopark.py`** – automatización de la detección de streams y combinación de audio/video.
+3. **`tegridy_check.py`** – verificación de integridad de archivos de video.
 
-- Obtiene la lista completa de temporadas y episodios de South Park en español e inglés.
-- Extrae los identificadores MGID únicos para cada temporada.
-- Consulta la API pública para listar episodios de cada temporada con metadatos.
-- Genera un archivo JSON `all_southpark_episodes.json` con la información de episodios, incluyendo URLs en español e inglés correctamente formateadas.
-
-### 2. `auto_park.py`
-
-- Lee el archivo `all_southpark_episodes.json`.
-- Usa Selenium Wire con Firefox para cargar las páginas de episodios (tanto en español como en inglés).
-- Interactúa con el reproductor para iniciar la reproducción y seleccionar calidad HD.
-- Captura las peticiones de red para obtener los enlaces `.m3u8` de video y audio.
-- Descarga por separado el video y las pistas de audio en español e inglés usando FFmpeg.
-- Fusiona los streams en un solo archivo MKV con audio multilingüe.
-- Guarda los episodios organizados por temporada en una carpeta local.
+A continuación se describe el funcionamiento y los detalles de cada script.
 
 ---
 
-## Requisitos
+## 1. `south_scrapper.py`
 
-- Python 3.8+
-- [Firefox](https://www.mozilla.org/firefox/)
-- [Geckodriver](https://github.com/mozilla/geckodriver/releases) (en PATH)
-- Selenium y Selenium Wire:
-  ```bash
-  pip install selenium selenium-wire
-* BeautifulSoup4:
+Este script se encarga de obtener la información estructurada de **todas las temporadas y episodios** de South Park, tanto en español como en inglés.
 
-  ```bash
-  pip install beautifulsoup4
-  ```
-* FFmpeg (instalado y accesible desde línea de comandos)
-* Conexión a internet para scraping y descarga
-* Perfil de Firefox configurado para evitar ciertos bloqueos (ruta en `profile_path` en `auto_park.py`)
+### Funcionalidad:
 
----
-
-## Uso
-
-### 1. Obtener el archivo JSON con episodios
-
-Ejecuta:
-
-```bash
-python south_scrapper.py
-```
-
-Esto creará `all_southpark_episodes.json` con la estructura:
+* Accede a la página de cada temporada en [southpark.lat](https://www.southpark.lat).
+* Extrae los identificadores internos (*MGID*) asociados a cada temporada.
+* Consulta la API pública del sitio para obtener la lista de episodios y sus metadatos (títulos, número de episodio, URLs).
+* Une los datos en un único archivo `all_southpark_episodes.json` con la estructura:
 
 ```json
 [
@@ -64,59 +35,156 @@ Esto creará `all_southpark_episodes.json` con la estructura:
     "temporada": 1,
     "numero": 1,
     "nombre": "Cartman consigue una sonda anal",
-    "url_es": "https://www.southpark.lat/episodios/940f8z/south-park-cartman-consigue-una-sonda-anal-temporada-1-ep-1",
-    "url_en": "https://www.southpark.lat/en/episodes/940f8z/south-park-cartman-consigue-una-sonda-anal-temporada-1-ep-1"
+    "url_es": "https://www.southpark.lat/episodios/940f8z/...",
+    "url_en": "https://www.southpark.lat/en/episodes/940f8z/..."
   },
   ...
 ]
 ```
 
+### Detalles técnicos:
+
+* Usa **requests** y **BeautifulSoup** para el scraping.
+* Maneja **paginación** de episodios y corrige URLs para idioma inglés.
+* Agrega un ejemplo manual para la temporada 1 debido a una estructura especial en el sitio.
+* Maneja tanto temporadas en español como en inglés, y las combina por número de episodio.
+
 ---
 
-### 2. Descargar episodios con audio en español e inglés
+## 2. `autopark.py`
 
-Ejecuta:
+Automatiza la **detección de streams** y la **combinación de pistas de audio/video** usando Selenium y FFmpeg.
+
+### Funcionalidad:
+
+1. **Carga de episodios**
+
+   * Abre Firefox mediante Selenium Wire.
+   * Carga la página del episodio en español y en inglés.
+   * Interactúa con el reproductor para iniciar reproducción y seleccionar calidad HD.
+
+2. **Captura de enlaces `.m3u8`**
+
+   * Intercepta peticiones de red para obtener URLs de video y audio.
+   * Filtra la mejor calidad de video (por ejemplo 1080p) y los streams de audio en español e inglés.
+
+3. **Descarga y combinación de streams**
+
+   * Usa FFmpeg para descargar video y audio por separado.
+   * Fusiona en un solo archivo `.mkv` con pistas de audio multilenguaje.
+   * Organiza los episodios en carpetas por temporada.
+
+4. **Gestión de errores y validación**
+
+   * Detecta si el archivo ya existe y si cumple con la resolución deseada (1080p).
+   * Reintenta descargas fallidas hasta 3 veces con pausas configurables.
+   * Mantiene un log detallado (`descargas.log`) con estado de cada episodio.
+
+### Detalles técnicos:
+
+* **Selenium Wire** intercepta todas las peticiones HTTP para capturar flujos `.m3u8`.
+* **FFmpeg** se usa en modo copia (`-c copy`) para no recodificar y mantener la calidad original.
+* Función `filter_streams` selecciona el mejor stream de video por MTP (Media Time Point) y el primer stream de audio disponible.
+* `sanitize_filename` asegura que los nombres de archivo sean válidos en el sistema operativo.
+* Soporta selección de calidad 720p o 1080p si está disponible.
+
+---
+
+## 3. `tegridy_check.py`
+
+Verifica la **integridad de archivos de video** en la carpeta del proyecto.
+
+### Funcionalidad:
+
+* Recorre directorios buscando archivos de video (`.mp4`, `.mkv`, `.avi`, `.mov`).
+* Analiza cada archivo usando FFmpeg para detectar posibles errores de corrupción o incompletitud.
+* Muestra un reporte final indicando los archivos potencialmente dañados.
+
+### Detalles técnicos:
+
+* Usa un **timeout** para evitar bloqueos prolongados al analizar archivos grandes.
+* Interpreta los errores que FFmpeg reporta en stderr como posibles corrupciones.
+* Permite revisar rápidamente la salud de una colección de archivos multimedia.
+
+---
+
+## Requisitos
+
+* **Python 3.8+**
+* **Firefox** y **Geckodriver** en PATH
+* Librerías Python:
+
+  ```bash
+  pip install selenium selenium-wire beautifulsoup4 requests
+  ```
+* **FFmpeg** (instalado y accesible desde línea de comandos)
+* Conexión a internet para ejecutar scraping y acceder a los streams
+* Perfil de Firefox válido y configurado para reproducción sin bloqueos (ruta en `profile_path`)
+
+---
+
+## Ejemplo de uso
+
+### 1. Generar archivo JSON con episodios
 
 ```bash
-python auto_park.py
+python south_scrapper.py
 ```
 
-* Asegúrate de modificar la variable `profile_path` para apuntar a tu perfil de Firefox local.
-* Los archivos se descargarán en la carpeta `descargas`, organizados en subcarpetas por temporada.
-* El script detecta enlaces `.m3u8` para video y audio, descarga y los fusiona usando FFmpeg.
-* En caso de error, podrás decidir si reintentar o saltar el episodio.
+→ Crea `all_southpark_episodes.json` con temporadas, episodios y URLs.
+
+### 2. Automatizar descarga y combinación de streams
+
+```bash
+python autopark.py
+```
+
+* Configura `profile_path` con tu perfil de Firefox.
+* Los episodios se organizan en carpetas `descargas/Season XX/`.
+* Los logs quedan registrados en `descargas.log`.
+
+### 3. Verificar integridad de archivos de video
+
+```bash
+python tegridy_check.py
+```
+
+* Muestra un listado de archivos con posibles errores de corrupción.
 
 ---
 
-## Detalles técnicos
+## Detalles técnicos avanzados
 
-* Se usa Selenium Wire para interceptar las peticiones HTTP y obtener los enlaces de streaming (video/audio).
-* FFmpeg descarga y fusiona los streams sin recodificar para mantener calidad original.
-* Las URLs en inglés se corrigen para apuntar a la ruta `/en/episodes/` para evitar problemas de idioma.
-* El script `south_scrapper.py` maneja paginación para obtener todos los episodios de cada temporada.
-* `auto_park.py` permite seleccionar calidad 720p o 1080p si está disponible.
+* **Logs y reintentos**: `autopark.py` maneja reintentos automáticos y registra cada paso con timestamps.
+* **Selección de streams**: Filtra video por MTP y audio por idioma.
+* **Validación de resolución**: Función `es_1080p` usa FFprobe para verificar resolución mínima requerida.
+* **Manejo de nombres de archivo**: `sanitize_filename` reemplaza caracteres inválidos para evitar errores de filesystem.
 
 ---
 
 ## Advertencias y notas
 
-* El scraping y descarga dependen de la estructura actual de la web `southpark.lat`, que puede cambiar en cualquier momento.
-* Este proyecto es solo para uso personal y educativo. Respeta siempre los términos de servicio y derechos de autor.
-* Asegúrate de tener suficiente espacio en disco para almacenar episodios completos.
-* El perfil de Firefox debe permitir reproducir videos sin intervención de captcha o bloqueos.
-* El script puede tardar bastante tiempo en descargar toda la serie completa.
+* La estructura del sitio puede cambiar, lo que podría romper los scripts.
+* Este proyecto **es solo educativo y técnico**.
+* No distribuyas contenido descargado sin permiso.
+* Asegúrate de tener suficiente espacio en disco para almacenar archivos grandes.
+* La descarga de episodios completos puede tardar considerablemente dependiendo del número de temporadas y la velocidad de internet.
+* Configura correctamente tu perfil de Firefox para evitar captchas o bloqueos de reproducción.
 
 ---
 
 ## Archivos principales
 
-* `south_scrapper.py`: Obtiene temporadas, episodios y URLs en español e inglés.
-* `auto_park.py`: Automatiza la descarga y fusión de streams para cada episodio.
-* `all_southpark_episodes.json`: Archivo generado con la lista completa de episodios y URLs.
+| Archivo                       | Función                                                               |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `south_scrapper.py`           | Obtiene temporadas, episodios y URLs en español e inglés.             |
+| `autopark.py`                 | Automatiza la obtención de streams, descarga y combinación de pistas. |
+| `tegridy_check.py`            | Analiza archivos de video y detecta corrupción.                       |
+| `all_southpark_episodes.json` | JSON generado con metadatos completos de episodios.                   |
 
 ---
 
-## Ejemplo de configuración `profile_path` en `auto_park.py`
+## Ejemplo de configuración `profile_path` en `autopark.py`
 
 ```python
 profile_path = r"C:\Users\mikey\AppData\Roaming\Mozilla\Firefox\Profiles\123456abcd.default-release"
@@ -128,8 +196,7 @@ Modifica según tu sistema operativo y perfil Firefox.
 
 ## Licencia
 
-Este proyecto es de uso personal y educativo. No distribuyas ni publiques contenidos protegidos sin permiso.
+* Uso **personal y educativo**.
+* No redistribuir contenido protegido por derechos de autor obtenido mediante estos ejemplos.
 
----
 
-¡Disfruta descargando South Park con audio multilenguaje!
